@@ -61,7 +61,12 @@ fn create_directory_structure(dir: &Path, exclude_patterns: &[String], indent: &
 fn main() {
     let args: Vec<String> = env::args().collect();
     let root_dir_path = if args.len() > 1 {
-        args[1].clone()
+        let path = &args[1];
+        if path == "." {
+            env::current_dir().unwrap().to_str().unwrap().to_string()
+        } else {
+            path.to_string()
+        }
     } else {
         env::current_dir().unwrap().to_str().unwrap().to_string()
     };
