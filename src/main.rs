@@ -22,14 +22,15 @@ fn should_exclude(path: &Path, exclude_patterns: &[String]) -> bool {
 // Function to create a textual representation of the directory structure
 fn create_directory_structure(dir: &Path, exclude_patterns: &[String], indent: &str) -> String {
     let mut output = String::new();
-    let files: Vec<_> = fs::read_dir(dir).unwrap().filter_map(Result::ok).collect();
+    let files: Vec<_> = fs::read_dir(dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|file| !should_exclude(&file.path(), exclude_patterns))
+        .collect();
 
-    for (index, file) in files.iter().enumerate() {
+    let mut index = 0;
+    for file in &files {
         let file_path = file.path();
-        if should_exclude(&file_path, exclude_patterns) {
-            continue;
-        }
-
         let file_name = file_path.file_name().unwrap().to_str().unwrap();
 
         let is_last_file = index == files.len() - 1;
@@ -50,6 +51,8 @@ fn create_directory_structure(dir: &Path, exclude_patterns: &[String], indent: &
             };
             output.push_str(&create_directory_structure(&file_path, exclude_patterns, &sub_indent));
         }
+
+        index += 1;
     }
 
     output
