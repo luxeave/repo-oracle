@@ -3,5 +3,5 @@
 version = 3
 
 [[package]]
-name = "repo-oracle"
+name = "oracle"
 version = "0.1.0"

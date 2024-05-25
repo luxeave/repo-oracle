@@ -1,5 +1,8 @@
 ├── src
-│   └── main.rs
-├── directory_structure.txt
+│   ├── main.rs
+│   └── lib
+│       ├── directory.rs
+│       ├── mod.rs
+│       └── gitignore.rs
 ├── Cargo.lock
 └── Cargo.toml

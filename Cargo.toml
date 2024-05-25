@@ -1,6 +1,9 @@
 [package]
-name = "repo-oracle"
+name = "oracle"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+
+[lib]
+path = "src/lib/mod.rs"
