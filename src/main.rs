@@ -1,17 +1,38 @@
 use std::env;
 use std::fs;
 use std::path::Path;
+use std::process;
 use oracle::gitignore::read_gitignore;
 use oracle::directory::create_directory_structure;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let root_dir_path = if args.len() > 1 {
-        let path = &args[1];
-        if path == "." {
-            env::current_dir().unwrap().to_str().unwrap().to_string()
+
+    if args.len() < 2 {
+        println!("Usage: directory_structure dir [--path <path_to_root_dir>]");
+        process::exit(1);
+    }
+
+    let command = &args[1];
+    if command != "dir" {
+        println!("Invalid command. Use 'dir' to generate the directory structure.");
+        process::exit(1);
+    }
+
+    let mut path_flag_index = None;
+    for (i, arg) in args.iter().enumerate() {
+        if arg == "--path" {
+            path_flag_index = Some(i);
+            break;
+        }
+    }
+
+    let root_dir_path = if let Some(index) = path_flag_index {
+        if index + 1 < args.len() {
+            args[index + 1].clone()
         } else {
-            path.to_string()
+            println!("Missing value for --path flag.");
+            process::exit(1);
         }
     } else {
         env::current_dir().unwrap().to_str().unwrap().to_string()
