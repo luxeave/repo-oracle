@@ -88,8 +88,46 @@ fn main() {
         let output_file = root_dir.join("extracted.txt");
 
         extract_definitions(&root_dir, &file_extension, &output_file);
+    } else if command == "raw" {
+        let mut path_flag_index = None;
+        let mut ext_flag_index = None;
+        for (i, arg) in args.iter().enumerate() {
+            if arg == "--path" {
+                path_flag_index = Some(i);
+            } else if arg == "--ext" {
+                ext_flag_index = Some(i);
+            }
+        }
+
+        let root_dir_path = if let Some(index) = path_flag_index {
+            if index + 1 < args.len() {
+                args[index + 1].clone()
+            } else {
+                println!("Missing value for --path flag.");
+                process::exit(1);
+            }
+        } else {
+            env::current_dir().unwrap().to_str().unwrap().to_string()
+        };
+
+        let file_extensions = if let Some(index) = ext_flag_index {
+            if index + 1 < args.len() {
+                args[index + 1].split(',').map(|ext| ext.trim().to_string()).collect::<Vec<String>>()
+            } else {
+                println!("Missing value for --ext flag.");
+                process::exit(1);
+            }
+        } else {
+            println!("Missing --ext flag.");
+            process::exit(1);
+        };
+
+        let root_dir = Path::new(&root_dir_path);
+        let output_file = root_dir.join("raw.txt");
+
+        oracle::extract::raw_content(&root_dir, &file_extensions, &output_file);
     } else {
-        println!("Invalid command. Available commands: dir, extract");
+        println!("Invalid command. Available commands: dir, extract, raw");
         process::exit(1);
     }
 }
