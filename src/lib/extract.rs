@@ -34,7 +34,7 @@ fn extract_definitions_from_file(file_path: &Path, file_content: &str) -> String
     let class_regex = Regex::new(r"class\s+(\w+)(\s+extends\s+\w+)?\s*\{[^}]*\}").unwrap();
     let method_regex = Regex::new(r"(constructor\s*\([^)]*\)|\w+\s*\([^)]*\))").unwrap();
     let function_regex = Regex::new(r"function\s+(\w+)\s*\([^)]*\)\s*\{").unwrap();
-    let variable_regex = Regex::new(r"\b(const|let|var)\s+(\w+)").unwrap();
+    let require_regex = Regex::new("const\\s+(\\w+)\\s*=\\s*require\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)").unwrap();
     let arrow_function_regex = Regex::new(r"(\w+)\s*=\s*\([^)]*\)\s*=>\s*\{").unwrap();
     let import_export_regex = Regex::new(r"\b(import|export)\b.*;").unwrap();
 
@@ -63,9 +63,11 @@ fn extract_definitions_from_file(file_path: &Path, file_content: &str) -> String
         result.push_str(&format!("function {}()\n", function_match.get(1).unwrap().as_str()));
     }
 
-    // Extract variable declarations
-    for variable_match in variable_regex.captures_iter(file_content) {
-        result.push_str(&format!("{} {};\n", variable_match.get(1).unwrap().as_str(), variable_match.get(2).unwrap().as_str()));
+    // Extract const declarations initialized with require
+    for require_match in require_regex.captures_iter(file_content) {
+        let variable_name = require_match.get(1).unwrap().as_str();
+        let module_name = require_match.get(2).unwrap().as_str();
+        result.push_str(&format!("const {} = require('{}')\n", variable_name, module_name));
     }
 
     // Extract arrow functions
