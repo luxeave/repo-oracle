@@ -2,6 +2,7 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 use regex::Regex;
+use crate::gitignore::{read_gitignore, should_exclude};
 
 pub fn extract_definitions(dir: &Path, file_extension: &str, output_file: &Path) {
     let mut extracted_content = String::new();
@@ -82,3 +83,44 @@ fn extract_definitions_from_file(file_path: &Path, file_content: &str) -> String
 
     result
 }
+
+// lib/extract.rs
+// ...
+
+pub fn raw_content(dir: &Path, file_extensions: &[String], output_file: &Path) {
+    let mut raw_content = String::new();
+
+    // Read the .gitignore file and get the exclude patterns
+    let exclude_patterns = read_gitignore(&dir);
+
+    for entry in fs::read_dir(dir).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+
+        // Check if the file or directory should be excluded
+        if should_exclude(&path, &exclude_patterns) {
+            continue;
+        }
+
+        if path.is_file() && file_extensions.iter().any(|ext| path.extension().unwrap_or_default().to_str().unwrap() == ext) {
+            let file_content = fs::read_to_string(&path).unwrap();
+            let file_name = path.file_name().unwrap().to_str().unwrap();
+            raw_content.push_str(&format!("// --------- {} ---------\n", file_name));
+            raw_content.push_str(&file_content);
+            raw_content.push('\n');
+        } else if path.is_dir() {
+            self::raw_content(&path, file_extensions, output_file);
+        }
+    }
+
+    if !raw_content.is_empty() {
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(output_file)
+            .unwrap();
+        file.write_all(raw_content.as_bytes()).unwrap();
+    }
+}
+
+// ...

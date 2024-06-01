@@ -41,10 +41,84 @@ pub fn create_directory_structure(dir: &Path, exclude_patterns: &[String], inden
 
     output
 }
+// --------- db.rs ---------
+use std::fs;
+use std::path::Path;
+use rusqlite::{Connection, params};
+use sha2::{Sha256, Digest};
+
+pub fn process_files(root_dir: &Path) {
+    let db_path = root_dir.join("context.db");
+    let conn = Connection::open(&db_path).unwrap();
+
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS files (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_path VARCHAR,
+            content TEXT,
+            checksum_prev VARCHAR DEFAULT NULL,
+            checksum VARCHAR DEFAULT NULL,
+            summary TEXT DEFAULT NULL
+        )",
+        [],
+    ).unwrap();
+
+    let mut file_paths = Vec::new();
+    traverse_directory(root_dir, &mut file_paths, &conn);
+
+    // Delete entries from the "files" table that are no longer present in the file system
+    let placeholders = std::iter::repeat("?").take(file_paths.len()).collect::<Vec<_>>().join(",");
+    let sql = format!("DELETE FROM files WHERE file_path NOT IN ({})", placeholders);
+    let params: Vec<&dyn rusqlite::ToSql> = file_paths.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    conn.execute(&sql, params.as_slice()).unwrap();
+}
+
+fn traverse_directory(dir: &Path, file_paths: &mut Vec<String>, conn: &Connection) {
+    for entry in fs::read_dir(dir).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+
+        if path.is_file() {
+            let file_path = path.to_str().unwrap().to_string();
+            file_paths.push(file_path.clone());
+
+            let file_content = fs::read_to_string(&path).unwrap();
+            let checksum = calculate_checksum(&file_content);
+
+            let mut stmt = conn.prepare("SELECT * FROM files WHERE file_path = ?").unwrap();
+            let mut rows = stmt.query(&[&file_path]).unwrap();
+
+            if let Some(row) = rows.next().unwrap() {
+                let id: i64 = row.get(0).unwrap();
+                let checksum_prev: String = row.get(4).unwrap();
+
+                conn.execute(
+                    "UPDATE files SET checksum_prev = ?, checksum = ?, content = ? WHERE id = ?",
+                    params![checksum_prev, checksum, file_content, id],
+                ).unwrap();
+            } else {
+                conn.execute(
+                    "INSERT INTO files (file_path, content, checksum) VALUES (?, ?, ?)",
+                    params![file_path, file_content, checksum],
+                ).unwrap();
+            }
+        } else if path.is_dir() {
+            traverse_directory(&path, file_paths, conn);
+        }
+    }
+}
+
+fn calculate_checksum(content: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(content.as_bytes());
+    let result = hasher.finalize();
+    format!("{:x}", result)
+}
 // --------- mod.rs ---------
 pub mod gitignore;
 pub mod directory;
 pub mod extract;
+pub mod db;
 // --------- gitignore.rs ---------
 use std::fs;
 use std::path::Path;
@@ -68,6 +142,7 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 use regex::Regex;
+use crate::gitignore::{read_gitignore, should_exclude};
 
 pub fn extract_definitions(dir: &Path, file_extension: &str, output_file: &Path) {
     let mut extracted_content = String::new();
@@ -148,6 +223,47 @@ fn extract_definitions_from_file(file_path: &Path, file_content: &str) -> String
 
     result
 }
+
+// lib/extract.rs
+// ...
+
+pub fn raw_content(dir: &Path, file_extensions: &[String], output_file: &Path) {
+    let mut raw_content = String::new();
+
+    // Read the .gitignore file and get the exclude patterns
+    let exclude_patterns = read_gitignore(&dir);
+
+    for entry in fs::read_dir(dir).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+
+        // Check if the file or directory should be excluded
+        if should_exclude(&path, &exclude_patterns) {
+            continue;
+        }
+
+        if path.is_file() && file_extensions.iter().any(|ext| path.extension().unwrap_or_default().to_str().unwrap() == ext) {
+            let file_content = fs::read_to_string(&path).unwrap();
+            let file_name = path.file_name().unwrap().to_str().unwrap();
+            raw_content.push_str(&format!("// --------- {} ---------\n", file_name));
+            raw_content.push_str(&file_content);
+            raw_content.push('\n');
+        } else if path.is_dir() {
+            self::raw_content(&path, file_extensions, output_file);
+        }
+    }
+
+    if !raw_content.is_empty() {
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(output_file)
+            .unwrap();
+        file.write_all(raw_content.as_bytes()).unwrap();
+    }
+}
+
+// ...
 // --------- main.rs ---------
 use std::env;
 use std::fs;
@@ -156,6 +272,7 @@ use std::process;
 use oracle::gitignore::read_gitignore;
 use oracle::directory::create_directory_structure;
 use oracle::extract::extract_definitions;
+use oracle::db::process_files;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -239,8 +356,68 @@ fn main() {
         let output_file = root_dir.join("extracted.txt");
 
         extract_definitions(&root_dir, &file_extension, &output_file);
+    } else if command == "raw" {
+        let mut path_flag_index = None;
+        let mut ext_flag_index = None;
+        for (i, arg) in args.iter().enumerate() {
+            if arg == "--path" {
+                path_flag_index = Some(i);
+            } else if arg == "--ext" {
+                ext_flag_index = Some(i);
+            }
+        }
+
+        let root_dir_path = if let Some(index) = path_flag_index {
+            if index + 1 < args.len() {
+                args[index + 1].clone()
+            } else {
+                println!("Missing value for --path flag.");
+                process::exit(1);
+            }
+        } else {
+            env::current_dir().unwrap().to_str().unwrap().to_string()
+        };
+
+        let file_extensions = if let Some(index) = ext_flag_index {
+            if index + 1 < args.len() {
+                args[index + 1].split(',').map(|ext| ext.trim().to_string()).collect::<Vec<String>>()
+            } else {
+                println!("Missing value for --ext flag.");
+                process::exit(1);
+            }
+        } else {
+            println!("Missing --ext flag.");
+            process::exit(1);
+        };
+
+        let root_dir = Path::new(&root_dir_path);
+        let output_file = root_dir.join("raw.txt");
+
+        oracle::extract::raw_content(&root_dir, &file_extensions, &output_file);
+    } else if command == "db" {
+        let mut path_flag_index = None;
+        for (i, arg) in args.iter().enumerate() {
+            if arg == "--path" {
+                path_flag_index = Some(i);
+                break;
+            }
+        }
+
+        let root_dir_path = if let Some(index) = path_flag_index {
+            if index + 1 < args.len() {
+                args[index + 1].clone()
+            } else {
+                println!("Missing value for --path flag.");
+                process::exit(1);
+            }
+        } else {
+            env::current_dir().unwrap().to_str().unwrap().to_string()
+        };
+
+        let root_dir = Path::new(&root_dir_path);
+        process_files(&root_dir);
     } else {
-        println!("Invalid command. Available commands: dir, extract");
+        println!("Invalid command. Available commands: dir, extract, raw, db");
         process::exit(1);
     }
 }

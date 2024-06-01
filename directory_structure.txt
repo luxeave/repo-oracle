@@ -2,8 +2,11 @@
 │   ├── main.rs
 │   └── lib
 │       ├── directory.rs
+│       ├── db.rs
 │       ├── mod.rs
 │       ├── gitignore.rs
 │       └── extract.rs
+├── context.db
 ├── Cargo.lock
-└── Cargo.toml
+├── Cargo.toml
+└── raw.txt
