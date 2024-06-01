@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 use rusqlite::{Connection, params};
 use sha2::{Sha256, Digest};
+use crate::gitignore::{read_gitignore, should_exclude};
 
 pub fn process_files(root_dir: &Path) {
     let db_path = root_dir.join("context.db");
@@ -20,7 +21,8 @@ pub fn process_files(root_dir: &Path) {
     ).unwrap();
 
     let mut file_paths = Vec::new();
-    traverse_directory(root_dir, &mut file_paths, &conn);
+    let exclude_patterns = read_gitignore(&root_dir);
+    traverse_directory(root_dir, &mut file_paths, &conn, &exclude_patterns);
 
     // Delete entries from the "files" table that are no longer present in the file system
     let placeholders = std::iter::repeat("?").take(file_paths.len()).collect::<Vec<_>>().join(",");
@@ -29,10 +31,14 @@ pub fn process_files(root_dir: &Path) {
     conn.execute(&sql, params.as_slice()).unwrap();
 }
 
-fn traverse_directory(dir: &Path, file_paths: &mut Vec<String>, conn: &Connection) {
+fn traverse_directory(dir: &Path, file_paths: &mut Vec<String>, conn: &Connection, exclude_patterns: &[String]) {
     for entry in fs::read_dir(dir).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
+
+        if should_exclude(&path, exclude_patterns) {
+            continue;
+        }
 
         if path.is_file() {
             let file_path = path.to_str().unwrap().to_string();
@@ -60,7 +66,7 @@ fn traverse_directory(dir: &Path, file_paths: &mut Vec<String>, conn: &Connectio
                 ).unwrap();
             }
         } else if path.is_dir() {
-            traverse_directory(&path, file_paths, conn);
+            traverse_directory(&path, file_paths, conn, exclude_patterns);
         }
     }
 }
