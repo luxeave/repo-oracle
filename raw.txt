@@ -1,0 +1,246 @@
+// --------- directory.rs ---------
+use std::fs;
+use std::path::Path;
+use crate::gitignore::should_exclude;
+
+// Function to create a textual representation of the directory structure
+pub fn create_directory_structure(dir: &Path, exclude_patterns: &[String], indent: &str) -> String {
+    let mut output = String::new();
+    let files: Vec<_> = fs::read_dir(dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|file| !should_exclude(&file.path(), exclude_patterns))
+        .collect();
+
+    let mut index = 0;
+    for file in &files {
+        let file_path = file.path();
+        let file_name = file_path.file_name().unwrap().to_str().unwrap();
+
+        let is_last_file = index == files.len() - 1;
+        let is_directory = file_path.is_dir();
+
+        output.push_str(&format!(
+            "{}{}{}\n",
+            indent,
+            if is_last_file { "└── " } else { "├── " },
+            file_name
+        ));
+
+        if is_directory {
+            let sub_indent = if is_last_file {
+                format!("{}    ", indent)
+            } else {
+                format!("{}│   ", indent)
+            };
+            output.push_str(&create_directory_structure(&file_path, exclude_patterns, &sub_indent));
+        }
+
+        index += 1;
+    }
+
+    output
+}
+// --------- mod.rs ---------
+pub mod gitignore;
+pub mod directory;
+pub mod extract;
+// --------- gitignore.rs ---------
+use std::fs;
+use std::path::Path;
+
+pub fn read_gitignore(dir: &Path) -> Vec<String> {
+    let gitignore_path = dir.join(".gitignore");
+    if gitignore_path.exists() {
+        let contents = fs::read_to_string(gitignore_path).unwrap();
+        contents.lines().map(|line| line.trim().to_string()).collect()
+    } else {
+        Vec::new()
+    }
+}
+
+pub fn should_exclude(path: &Path, exclude_patterns: &[String]) -> bool {
+    let file_name = path.file_name().unwrap().to_str().unwrap();
+    file_name == ".git" || file_name == ".gitignore" || exclude_patterns.iter().any(|pattern| path.to_str().unwrap().contains(pattern))
+}
+// --------- extract.rs ---------
+use std::fs;
+use std::io::Write;
+use std::path::Path;
+use regex::Regex;
+
+pub fn extract_definitions(dir: &Path, file_extension: &str, output_file: &Path) {
+    let mut extracted_content = String::new();
+
+    for entry in fs::read_dir(dir).unwrap() {
+        let entry = entry.unwrap();
+        let path = entry.path();
+
+        if path.is_file() && path.extension().unwrap_or_default() == file_extension {
+            let file_content = fs::read_to_string(&path).unwrap();
+            let extracted_definitions = extract_definitions_from_file(&path, &file_content);
+            extracted_content.push_str(&extracted_definitions);
+            extracted_content.push('\n');
+        } else if path.is_dir() {
+            extract_definitions(&path, file_extension, output_file);
+        }
+    }
+
+    if !extracted_content.is_empty() {
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(output_file)
+            .unwrap();
+        file.write_all(extracted_content.as_bytes()).unwrap();
+    }
+}
+
+fn extract_definitions_from_file(file_path: &Path, file_content: &str) -> String {
+    let class_regex = Regex::new(r"class\s+(\w+)(\s+extends\s+\w+)?\s*\{[^}]*\}").unwrap();
+    let method_regex = Regex::new(r"(constructor\s*\([^)]*\)|\w+\s*\([^)]*\))").unwrap();
+    let function_regex = Regex::new(r"function\s+(\w+)\s*\([^)]*\)\s*\{").unwrap();
+    let require_regex = Regex::new("const\\s+(\\w+)\\s*=\\s*require\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)").unwrap();
+    let arrow_function_regex = Regex::new(r"(\w+)\s*=\s*\([^)]*\)\s*=>\s*\{").unwrap();
+    let import_export_regex = Regex::new(r"\b(import|export)\b.*;").unwrap();
+
+    let mut result = String::new();
+
+    // Add a header with the file name
+    let file_name = file_path.file_name().unwrap().to_str().unwrap();
+    result.push_str(&format!("// --------- {} ---------\n", file_name));
+
+    // Extract class declarations and methods
+    for class_match in class_regex.captures_iter(file_content) {
+        let class_declaration = class_match.get(0).unwrap().as_str();
+        let class_name = class_match.get(1).unwrap().as_str();
+        let extends_clause = class_match.get(2).map(|m| m.as_str()).unwrap_or("");
+        result.push_str(&format!("class {}{} {{\n", class_name, extends_clause));
+
+        for method_match in method_regex.captures_iter(class_declaration) {
+            result.push_str(&format!("  {}\n", method_match.get(0).unwrap().as_str()));
+        }
+
+        result.push_str("}\n");
+    }
+
+    // Extract function declarations
+    for function_match in function_regex.captures_iter(file_content) {
+        result.push_str(&format!("function {}()\n", function_match.get(1).unwrap().as_str()));
+    }
+
+    // Extract const declarations initialized with require
+    for require_match in require_regex.captures_iter(file_content) {
+        let variable_name = require_match.get(1).unwrap().as_str();
+        let module_name = require_match.get(2).unwrap().as_str();
+        result.push_str(&format!("const {} = require('{}')\n", variable_name, module_name));
+    }
+
+    // Extract arrow functions
+    for arrow_function_match in arrow_function_regex.captures_iter(file_content) {
+        result.push_str(&format!("{} = () => {{}}\n", arrow_function_match.get(1).unwrap().as_str()));
+    }
+
+    // Extract import/export statements
+    for import_export_match in import_export_regex.captures_iter(file_content) {
+        result.push_str(&format!("{}\n", import_export_match.get(0).unwrap().as_str()));
+    }
+
+    result
+}
+// --------- main.rs ---------
+use std::env;
+use std::fs;
+use std::path::Path;
+use std::process;
+use oracle::gitignore::read_gitignore;
+use oracle::directory::create_directory_structure;
+use oracle::extract::extract_definitions;
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() < 2 {
+        println!("Usage: directory_structure <command> [options]");
+        println!("Commands:");
+        println!("  dir    Generate the directory structure");
+        println!("  extract    Extract definitions from files");
+        process::exit(1);
+    }
+
+    let command = &args[1];
+
+    if command == "dir" {
+        let mut path_flag_index = None;
+        for (i, arg) in args.iter().enumerate() {
+            if arg == "--path" {
+                path_flag_index = Some(i);
+                break;
+            }
+        }
+
+        let root_dir_path = if let Some(index) = path_flag_index {
+            if index + 1 < args.len() {
+                args[index + 1].clone()
+            } else {
+                println!("Missing value for --path flag.");
+                process::exit(1);
+            }
+        } else {
+            env::current_dir().unwrap().to_str().unwrap().to_string()
+        };
+
+        let root_dir = Path::new(&root_dir_path);
+
+        // Read the .gitignore file and get the exclude patterns
+        let exclude_patterns = read_gitignore(&root_dir);
+
+        // Create textual representation of the directory structure
+        let directory_structure = create_directory_structure(&root_dir, &exclude_patterns, "");
+        println!("Directory Structure:\n{}", directory_structure);
+
+        // Save the directory structure to a file
+        let output_file = root_dir.join("directory_structure.txt");
+        fs::write(output_file, directory_structure).unwrap();
+    } else if command == "extract" {
+        let mut path_flag_index = None;
+        let mut ext_flag_index = None;
+        for (i, arg) in args.iter().enumerate() {
+            if arg == "--path" {
+                path_flag_index = Some(i);
+            } else if arg == "--ext" {
+                ext_flag_index = Some(i);
+            }
+        }
+
+        let root_dir_path = if let Some(index) = path_flag_index {
+            if index + 1 < args.len() {
+                args[index + 1].clone()
+            } else {
+                println!("Missing value for --path flag.");
+                process::exit(1);
+            }
+        } else {
+            env::current_dir().unwrap().to_str().unwrap().to_string()
+        };
+
+        let file_extension = if let Some(index) = ext_flag_index {
+            if index + 1 < args.len() {
+                args[index + 1].clone()
+            } else {
+                println!("Missing value for --ext flag.");
+                process::exit(1);
+            }
+        } else {
+            "js".to_string()
+        };
+
+        let root_dir = Path::new(&root_dir_path);
+        let output_file = root_dir.join("extracted.txt");
+
+        extract_definitions(&root_dir, &file_extension, &output_file);
+    } else {
+        println!("Invalid command. Available commands: dir, extract");
+        process::exit(1);
+    }
+}

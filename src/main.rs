@@ -5,6 +5,7 @@ use std::process;
 use oracle::gitignore::read_gitignore;
 use oracle::directory::create_directory_structure;
 use oracle::extract::extract_definitions;
+use oracle::db::process_files;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -88,8 +89,30 @@ fn main() {
         let output_file = root_dir.join("extracted.txt");
 
         extract_definitions(&root_dir, &file_extension, &output_file);
+    } else if command == "db" {
+        let mut path_flag_index = None;
+        for (i, arg) in args.iter().enumerate() {
+            if arg == "--path" {
+                path_flag_index = Some(i);
+                break;
+            }
+        }
+
+        let root_dir_path = if let Some(index) = path_flag_index {
+            if index + 1 < args.len() {
+                args[index + 1].clone()
+            } else {
+                println!("Missing value for --path flag.");
+                process::exit(1);
+            }
+        } else {
+            env::current_dir().unwrap().to_str().unwrap().to_string()
+        };
+
+        let root_dir = Path::new(&root_dir_path);
+        process_files(&root_dir);
     } else {
-        println!("Invalid command. Available commands: dir, extract");
+        println!("Invalid command. Available commands: dir, extract, db");
         process::exit(1);
     }
 }
