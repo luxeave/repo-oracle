@@ -38,7 +38,8 @@ fn traverse_directory(dir: &Path, file_paths: &mut Vec<String>, conn: &Connectio
             let file_path = path.to_str().unwrap().to_string();
             file_paths.push(file_path.clone());
 
-            let file_content = fs::read_to_string(&path).unwrap();
+            let file_content = fs::read(&path).unwrap();
+            let file_content = String::from_utf8_lossy(&file_content);
             let checksum = calculate_checksum(&file_content);
 
             let mut stmt = conn.prepare("SELECT * FROM files WHERE file_path = ?").unwrap();
