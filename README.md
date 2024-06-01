@@ -1,4 +1,4 @@
-# Directory Structure CLI
+# Project Context Extractor CLI
 
 This is a command-line interface (CLI) application written in Rust that provides various functionality for analyzing and extracting information from a directory structure.
 
