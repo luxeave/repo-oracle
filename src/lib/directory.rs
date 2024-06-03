@@ -5,11 +5,20 @@ use crate::gitignore::should_exclude;
 // Function to create a textual representation of the directory structure
 pub fn create_directory_structure(dir: &Path, exclude_patterns: &[String], indent: &str) -> String {
     let mut output = String::new();
-    let files: Vec<_> = fs::read_dir(dir)
-        .unwrap()
-        .filter_map(Result::ok)
-        .filter(|file| !should_exclude(&file.path(), exclude_patterns))
-        .collect();
+    let files: Vec<_> = match fs::read_dir(dir) {
+        Ok(entries) => entries
+            .filter_map(Result::ok)
+            .filter(|file| {
+                let should_exclude = should_exclude(&file.path(), exclude_patterns);
+                println!("File: {:?}, Excluded: {}", file.path(), should_exclude);
+                !should_exclude
+            })
+            .collect(),
+        Err(e) => {
+            println!("Error reading directory: {:?}, Error: {}", dir, e);
+            Vec::new()
+        },
+    };
 
     let mut index = 0;
     for file in &files {

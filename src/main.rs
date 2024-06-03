@@ -21,23 +21,16 @@ fn main() {
     let command = &args[1];
 
     if command == "dir" {
-        let mut path_flag_index = None;
-        for (i, arg) in args.iter().enumerate() {
-            if arg == "--path" {
-                path_flag_index = Some(i);
-                break;
+        let (root_dir_path, output_dir_path) = match args.iter().position(|arg| arg == "--path") {
+            Some(index) if index + 1 < args.len() => {
+                let path = &args[index + 1];
+                (path.clone(), Path::new(path).to_path_buf())
             }
-        }
-
-        let root_dir_path = if let Some(index) = path_flag_index {
-            if index + 1 < args.len() {
-                args[index + 1].clone()
-            } else {
-                println!("Missing value for --path flag.");
-                process::exit(1);
+            _ => {
+                let current_dir = env::current_dir().unwrap();
+                let current_dir_path = current_dir.to_str().unwrap().to_string();
+                (current_dir_path, current_dir)
             }
-        } else {
-            env::current_dir().unwrap().to_str().unwrap().to_string()
         };
 
         let root_dir = Path::new(&root_dir_path);
@@ -49,8 +42,8 @@ fn main() {
         let directory_structure = create_directory_structure(&root_dir, &exclude_patterns, "");
         println!("Directory Structure:\n{}", directory_structure);
 
-        // Save the directory structure to a file
-        let output_file = root_dir.join("directory_structure.txt");
+        // Save the directory structure to a file in the current directory
+        let output_file = output_dir_path.join("directory_structure.txt");
         fs::write(output_file, directory_structure).unwrap();
     } else if command == "extract" {
         let mut path_flag_index = None;
