@@ -17,9 +17,13 @@ pub fn read_gitignore(dir: &Path) -> Vec<String> {
 }
 
 pub fn should_exclude(path: &Path, exclude_patterns: &[String]) -> bool {
-    let path_str = path.to_str().unwrap();
+    let file_name = path.file_name().unwrap_or_default().to_str().unwrap_or_default();
+    let dir_name = match path.parent() {
+        Some(parent) => parent.file_name().unwrap_or_default().to_str().unwrap_or_default(),
+        None => "",
+    };
 
-    if path_str.contains("/.git") || path_str.contains("/target") {
+    if file_name.starts_with(".git") || file_name == "target" || dir_name == "target" {
         return true;
     }
 
@@ -35,6 +39,6 @@ pub fn should_exclude(path: &Path, exclude_patterns: &[String]) -> bool {
         } else {
             pattern.to_string()
         };
-        Pattern::new(&pattern).unwrap().matches(path_str)
+        Pattern::new(&pattern).unwrap().matches(file_name) || Pattern::new(&pattern).unwrap().matches(dir_name)
     })
 }
