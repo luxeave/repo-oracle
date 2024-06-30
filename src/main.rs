@@ -1,149 +1,42 @@
 use std::env;
-use std::fs;
-use std::path::Path;
 use std::process;
-use oracle::gitignore::read_gitignore;
-use oracle::directory::create_directory_structure;
-use oracle::extract::extract_definitions;
-use oracle::db::process_files;
+use oracle::commands::{
+    handle_dir_command,
+    handle_extract_command,
+    handle_raw_command,
+    handle_db_command,
+    handle_retrieve_command,
+};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        println!("Usage: directory_structure <command> [options]");
-        println!("Commands:");
-        println!("  dir    Generate the directory structure");
-        println!("  extract    Extract definitions from files");
+        print_usage();
         process::exit(1);
     }
 
     let command = &args[1];
 
-    if command == "dir" {
-        let (root_dir_path, output_dir_path) = match args.iter().position(|arg| arg == "--path") {
-            Some(index) if index + 1 < args.len() => {
-                let path = &args[index + 1];
-                (path.clone(), Path::new(path).to_path_buf())
-            }
-            _ => {
-                let current_dir = env::current_dir().unwrap();
-                let current_dir_path = current_dir.to_str().unwrap().to_string();
-                (current_dir_path, current_dir)
-            }
-        };
-
-        let root_dir = Path::new(&root_dir_path);
-
-        // Read the .gitignore file and get the exclude patterns
-        let exclude_patterns = read_gitignore(&root_dir);
-
-        // Create textual representation of the directory structure
-        let directory_structure = create_directory_structure(&root_dir, &exclude_patterns, "");
-        println!("Directory Structure:\n{}", directory_structure);
-
-        // Save the directory structure to a file in the current directory
-        let output_file = output_dir_path.join("directory_structure.txt");
-        fs::write(output_file, directory_structure).unwrap();
-    } else if command == "extract" {
-        let mut path_flag_index = None;
-        let mut ext_flag_index = None;
-        for (i, arg) in args.iter().enumerate() {
-            if arg == "--path" {
-                path_flag_index = Some(i);
-            } else if arg == "--ext" {
-                ext_flag_index = Some(i);
-            }
-        }
-
-        let root_dir_path = if let Some(index) = path_flag_index {
-            if index + 1 < args.len() {
-                args[index + 1].clone()
-            } else {
-                println!("Missing value for --path flag.");
-                process::exit(1);
-            }
-        } else {
-            env::current_dir().unwrap().to_str().unwrap().to_string()
-        };
-
-        let file_extension = if let Some(index) = ext_flag_index {
-            if index + 1 < args.len() {
-                args[index + 1].clone()
-            } else {
-                println!("Missing value for --ext flag.");
-                process::exit(1);
-            }
-        } else {
-            "js".to_string()
-        };
-
-        let root_dir = Path::new(&root_dir_path);
-        let output_file = root_dir.join("extracted.txt");
-
-        extract_definitions(&root_dir, &file_extension, &output_file);
-    } else if command == "raw" {
-        let mut path_flag_index = None;
-        let mut ext_flag_index = None;
-        for (i, arg) in args.iter().enumerate() {
-            if arg == "--path" {
-                path_flag_index = Some(i);
-            } else if arg == "--ext" {
-                ext_flag_index = Some(i);
-            }
-        }
-
-        let root_dir_path = if let Some(index) = path_flag_index {
-            if index + 1 < args.len() {
-                args[index + 1].clone()
-            } else {
-                println!("Missing value for --path flag.");
-                process::exit(1);
-            }
-        } else {
-            env::current_dir().unwrap().to_str().unwrap().to_string()
-        };
-
-        let file_extensions = if let Some(index) = ext_flag_index {
-            if index + 1 < args.len() {
-                args[index + 1].split(',').map(|ext| ext.trim().to_string()).collect::<Vec<String>>()
-            } else {
-                println!("Missing value for --ext flag.");
-                process::exit(1);
-            }
-        } else {
-            println!("Missing --ext flag.");
+    match command.as_str() {
+        "dir" => handle_dir_command(&args),
+        "extract" => handle_extract_command(&args),
+        "raw" => handle_raw_command(&args),
+        "db" => handle_db_command(&args),
+        "retrieve" => handle_retrieve_command(&args),
+        _ => {
+            println!("Invalid command. Available commands: dir, extract, raw, db, retrieve");
             process::exit(1);
-        };
-
-        let root_dir = Path::new(&root_dir_path);
-        let output_file = root_dir.join("raw.txt");
-
-        oracle::extract::raw_content(&root_dir, &file_extensions, &output_file);
-    } else if command == "db" {
-        let mut path_flag_index = None;
-        for (i, arg) in args.iter().enumerate() {
-            if arg == "--path" {
-                path_flag_index = Some(i);
-                break;
-            }
         }
-
-        let root_dir_path = if let Some(index) = path_flag_index {
-            if index + 1 < args.len() {
-                args[index + 1].clone()
-            } else {
-                println!("Missing value for --path flag.");
-                process::exit(1);
-            }
-        } else {
-            env::current_dir().unwrap().to_str().unwrap().to_string()
-        };
-
-        let root_dir = Path::new(&root_dir_path);
-        process_files(&root_dir);
-    } else {
-        println!("Invalid command. Available commands: dir, extract, raw, db");
-        process::exit(1);
     }
+}
+
+fn print_usage() {
+    println!("Usage: directory_structure <command> [options]");
+    println!("Commands:");
+    println!("  dir      Generate the directory structure");
+    println!("  extract  Extract definitions from files");
+    println!("  raw      Extract raw content from files");
+    println!("  db       Process files for database");
+    println!("  retrieve Retrieve content from specified files");
 }
