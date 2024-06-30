@@ -31,7 +31,7 @@ The CLI app provides the following commands:
 ### 1. Generate Directory Structure
 To generate a textual representation of the directory structure, use the `dir` command:
 ```
-cargo run --release -- dir [--path <directory_path>]
+oracle dir [--path <directory_path>]
 ```
 - `--path`: Optional flag to specify the directory path. If not provided, the current working directory will be used.
 
@@ -41,7 +41,7 @@ The generated directory structure will be displayed in the console and saved to 
 
 To extract definitions (classes, methods, functions, etc.) from files with a specific extension, use the `extract` command:
 ```
-cargo run --release -- extract [--path <directory_path>] [--ext <file_extension>]
+oracle extract [--path <directory_path>] [--ext <file_extension>]
 ```
 - `--path`: Optional flag to specify the directory path. If not provided, the current working directory will be used.
 - `--ext`: Optional flag to specify the file extension. If not provided, it defaults to "js".
@@ -52,7 +52,7 @@ The extracted definitions will be saved to a file named `extracted.txt` in the s
 
 To extract the raw content of files with specific extensions, use the `raw` command:
 ```
-cargo run --release -- raw [--path <directory_path>] --ext <file_extensions>
+oracle raw [--path <directory_path>] --ext <file_extensions>
 ```
 - `--path`: Optional flag to specify the directory path. If not provided, the current working directory will be used.
 - `--ext`: Required flag to specify the file extensions (comma-separated) to include.
@@ -63,7 +63,7 @@ The extracted raw content will be saved to a file named `raw.txt` in the specifi
 
 To process files in a directory and store their information in an SQLite database, use the `db` command:
 ```
-cargo run --release -- db [--path <directory_path>]
+oracle db [--path <directory_path>]
 ```
 - `--path`: Optional flag to specify the directory path. If not provided, the current working directory will be used.
 
@@ -72,7 +72,7 @@ The processed file information will be stored in an SQLite database file named `
 ### 5. Retrieve File Content
 
 ```
-cargo run --release -- retrieve --file <input_file_path>
+oracle retrieve --file <input_file_path>
 ```
 - `--file`: Required flag to specify the path to a file containing a list of file paths to retrieve.
 
@@ -82,23 +82,23 @@ This command reads the specified input file, which should contain a list of file
 
 - Generate directory structure for the current directory:
 ```
-cargo run --release -- dir
+oracle dir
 ```
 - Extract definitions from JavaScript files in the "src" directory:
 ```
-cargo run --release -- extract --path src --ext js
+oracle extract --path src --ext js
 ```
 - Extract raw content of Rust files in the current directory:
 ```
-cargo run --release -- raw --ext rs
+oracle raw --ext rs
 ```
 - Process files in the "project" directory and store in the database:
 ```
-cargo run --release -- db --path project
+oracle db --path project
 ```
 - Retrieve content from files listed in "file_list.txt":
 ```
-cargo run --release -- retrieve --file file_list.txt
+oracle retrieve --file file_list.txt
 ```
 
 ## License
