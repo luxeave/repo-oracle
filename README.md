@@ -69,6 +69,15 @@ cargo run --release -- db [--path <directory_path>]
 
 The processed file information will be stored in an SQLite database file named `context.db` in the specified directory.
 
+### 5. Retrieve File Content
+
+```
+cargo run --release -- retrieve --file <input_file_path>
+```
+- `--file`: Required flag to specify the path to a file containing a list of file paths to retrieve.
+
+This command reads the specified input file, which should contain a list of file paths (one per line). It then retrieves the content of each file and saves it to a file named `retrieve.txt` in the current directory.
+
 ## Examples
 
 - Generate directory structure for the current directory:
@@ -87,6 +96,11 @@ cargo run --release -- raw --ext rs
 ```
 cargo run --release -- db --path project
 ```
+- Retrieve content from files listed in "file_list.txt":
+```
+cargo run --release -- retrieve --file file_list.txt
+```
+
 ## License
 
 This project is licensed under the [MIT License](LICENSE).
