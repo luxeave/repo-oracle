@@ -1,3 +1,4 @@
+// src/lib/gitignore.rs
 use std::fs;
 use std::path::Path;
 use glob::Pattern;
@@ -7,7 +8,10 @@ pub fn read_gitignore(dir: &Path) -> Vec<String> {
     if gitignore_path.exists() {
         println!("Found .gitignore file at: {:?}", gitignore_path);
         let contents = fs::read_to_string(gitignore_path).unwrap_or_default();
-        let patterns = contents.lines().map(|line| line.trim().to_string()).collect();
+        let patterns = contents.lines()
+            .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
+            .map(|line| line.trim().to_string())
+            .collect();
         println!("Exclude patterns: {:?}", patterns);
         patterns
     } else {
@@ -17,28 +21,23 @@ pub fn read_gitignore(dir: &Path) -> Vec<String> {
 }
 
 pub fn should_exclude(path: &Path, exclude_patterns: &[String]) -> bool {
-    let file_name = path.file_name().unwrap_or_default().to_str().unwrap_or_default();
-    let dir_name = match path.parent() {
-        Some(parent) => parent.file_name().unwrap_or_default().to_str().unwrap_or_default(),
-        None => "",
-    };
+    let relative_path = path.to_str().unwrap_or_default();
 
-    if file_name.starts_with(".git") || file_name == "target" || dir_name == "target" {
+    if relative_path.contains("/.git/") || relative_path.contains("/target/") {
         return true;
     }
 
     exclude_patterns.iter().any(|pattern| {
-        let pattern = if pattern.starts_with('/') {
-            &pattern[1..]
-        } else {
-            pattern
-        };
-        let is_directory = pattern.ends_with('/');
-        let pattern = if is_directory {
-            format!("{}**", pattern)
-        } else {
+        let mut full_pattern = if pattern.starts_with('/') {
             pattern.to_string()
+        } else {
+            format!("**/{}", pattern)
         };
-        Pattern::new(&pattern).unwrap().matches(file_name) || Pattern::new(&pattern).unwrap().matches(dir_name)
+
+        if !full_pattern.ends_with('/') && !full_pattern.ends_with("**") {
+            full_pattern.push_str("/**");
+        }
+
+        Pattern::new(&full_pattern).unwrap().matches(relative_path)
     })
 }
