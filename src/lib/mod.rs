@@ -1,7 +1,7 @@
-pub mod gitignore;
+pub mod commands;
+pub mod db;
 pub mod directory;
 pub mod extract;
-pub mod db;
+pub mod gitignore;
 pub mod retrieve;
-pub mod commands;
 pub mod utils;

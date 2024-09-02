@@ -14,7 +14,10 @@ pub fn retrieve_files(input_file: &Path, output_file: &Path) -> Result<(), std::
             Err(e) => format!("Error reading file: {}", e),
         };
 
-        output.push_str(&format!("----------------------\n{}\n---------------------\n", file_path));
+        output.push_str(&format!(
+            "----------------------\n{}\n---------------------\n",
+            file_path
+        ));
         output.push_str(&file_content);
         output.push_str("\n");
     }

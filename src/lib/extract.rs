@@ -1,6 +1,7 @@
 use crate::gitignore::{read_gitignore, should_exclude};
 use regex::Regex;
 use std::fs;
+use std::io;
 use std::io::Write;
 use std::path::Path;
 
@@ -100,57 +101,90 @@ fn extract_definitions_from_file(file_path: &Path, file_content: &str) -> String
 // lib/extract.rs
 // ...
 
-pub fn raw_content(dir: &Path, file_extensions: &[String], output_file: &Path) {
-    // Read the .gitignore file and get the exclude patterns
+pub fn raw_content(
+    dir: &Path,
+    file_extensions: &[String],
+    process_all: bool,
+    output_file: &Path,
+) -> io::Result<()> {
     let exclude_patterns = read_gitignore(dir);
 
     let mut raw_content = String::new();
-    process_directory(dir, file_extensions, &exclude_patterns, &mut raw_content);
+    let base_dir = dir.to_path_buf();
+
+    process_directory(
+        &base_dir,
+        &base_dir,
+        file_extensions,
+        process_all,
+        &exclude_patterns,
+        &mut raw_content,
+    )?;
 
     if !raw_content.is_empty() {
         let mut file = fs::OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
-            .open(output_file)
-            .unwrap();
-        file.write_all(raw_content.as_bytes()).unwrap();
+            .open(output_file)?;
+        file.write_all(raw_content.as_bytes())?;
+    } else {
+        println!("No content to write");
     }
+
+    Ok(())
 }
 
 fn process_directory(
-    dir: &Path,
+    base_dir: &Path,
+    current_dir: &Path,
     file_extensions: &[String],
+    process_all: bool,
     exclude_patterns: &[String],
     raw_content: &mut String,
-) {
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries {
-            if let Ok(entry) = entry {
-                let path = entry.path();
+) -> io::Result<()> {
+    println!("Processing directory: {:?}", current_dir);
 
-                // Check if the file or directory should be excluded
-                if should_exclude(&path, exclude_patterns) {
-                    continue;
-                }
+    let entries = fs::read_dir(current_dir)?;
+    for entry in entries {
+        let entry = entry?;
+        let path = entry.path();
 
-                if path.is_file()
-                    && file_extensions
-                        .iter()
-                        .any(|ext| path.extension().unwrap_or_default().to_str().unwrap() == ext)
-                {
-                    if let Ok(file_content) = fs::read_to_string(&path) {
-                        let file_name = path.file_name().unwrap().to_str().unwrap();
-                        raw_content.push_str(&format!("// --------- {} ---------\n", file_name));
+        if should_exclude(&path, exclude_patterns) {
+            continue;
+        }
+
+        if path.is_file() {
+            let file_ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let should_include = process_all || file_extensions.iter().any(|ext| ext == file_ext);
+
+            if should_include {
+                match fs::read_to_string(&path) {
+                    Ok(file_content) => {
+                        let relative_path = path.strip_prefix(base_dir).unwrap_or(&path);
+                        raw_content.push_str(&format!(
+                            "// --------- {} ---------\n",
+                            relative_path.display()
+                        ));
                         raw_content.push_str(&file_content);
                         raw_content.push('\n');
                     }
-                } else if path.is_dir() {
-                    process_directory(&path, file_extensions, exclude_patterns, raw_content);
+                    Err(e) => println!("Error reading file {:?}: {}", path, e),
                 }
             }
+        } else if path.is_dir() {
+            process_directory(
+                base_dir,
+                &path,
+                file_extensions,
+                process_all,
+                exclude_patterns,
+                raw_content,
+            )?;
         }
     }
+
+    Ok(())
 }
 
 // ...

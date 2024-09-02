@@ -1,4 +1,154 @@
-// --------- directory.rs ---------
+// --------- src/main.rs ---------
+use std::env;
+use std::process;
+use oracle::commands::{
+    handle_dir_command,
+    handle_extract_command,
+    handle_raw_command,
+    handle_db_command,
+    handle_retrieve_command,
+};
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() < 2 {
+        print_usage();
+        process::exit(1);
+    }
+
+    let command = &args[1];
+
+    match command.as_str() {
+        "dir" => handle_dir_command(&args),
+        "extract" => handle_extract_command(&args),
+        "raw" => handle_raw_command(&args),
+        "db" => handle_db_command(&args),
+        "retrieve" => handle_retrieve_command(&args),
+        _ => {
+            println!("Invalid command. Available commands: dir, extract, raw, db, retrieve");
+            process::exit(1);
+        }
+    }
+}
+
+fn print_usage() {
+    println!("Usage: directory_structure <command> [options]");
+    println!("Commands:");
+    println!("  dir      Generate the directory structure");
+    println!("  extract  Extract definitions from files");
+    println!("  raw      Extract raw content from files");
+    println!("  db       Process files for database");
+    println!("  retrieve Retrieve content from specified files");
+}
+// --------- src/lib/commands.rs ---------
+use std::env;
+use std::fs;
+use std::path::Path;
+use std::process;
+use crate::gitignore::read_gitignore;
+use crate::directory::create_directory_structure;
+use crate::extract::{extract_definitions, raw_content};
+use crate::db::process_files;
+use crate::retrieve::retrieve_files;
+use crate::utils::{parse_path_and_ext, parse_path};
+
+pub fn handle_dir_command(args: &[String]) {
+    let (root_dir_path, output_dir_path) = match args.iter().position(|arg| arg == "--path") {
+        Some(index) if index + 1 < args.len() => {
+            let path = &args[index + 1];
+            (path.clone(), Path::new(path).to_path_buf())
+        }
+        _ => {
+            let current_dir = env::current_dir().unwrap();
+            let current_dir_path = current_dir.to_str().unwrap().to_string();
+            (current_dir_path, current_dir)
+        }
+    };
+
+    let root_dir = Path::new(&root_dir_path);
+
+    // Read the .gitignore file and get the exclude patterns
+    let exclude_patterns = read_gitignore(&root_dir);
+
+    // Create textual representation of the directory structure
+    let directory_structure = create_directory_structure(&root_dir, &exclude_patterns, "");
+    println!("Directory Structure:\n{}", directory_structure);
+
+    // Save the directory structure to a file in the current directory
+    let output_file = output_dir_path.join("directory_structure.txt");
+    fs::write(output_file, directory_structure).unwrap();
+}
+
+pub fn handle_extract_command(args: &[String]) {
+    let (root_dir_path, file_extension) = parse_path_and_ext(args);
+    let root_dir = Path::new(&root_dir_path);
+    let output_file = root_dir.join("extracted.txt");
+
+    extract_definitions(&root_dir, &file_extension, &output_file);
+}
+
+pub fn handle_raw_command(args: &[String]) {
+    let (root_dir_path, file_extensions_str) = parse_path_and_ext(args);
+    let root_dir = Path::new(&root_dir_path);
+    let output_file = root_dir.join("raw.txt");
+
+    println!("Root directory: {:?}", root_dir);
+    println!("Output file: {:?}", output_file);
+    println!("File extensions string: {}", file_extensions_str);
+
+    let process_all = file_extensions_str.to_lowercase() == "all";
+    let file_extensions = if process_all {
+        Vec::new()
+    } else {
+        file_extensions_str.split(',').map(|s| s.to_string()).collect::<Vec<String>>()
+    };
+
+    match raw_content(&root_dir, &file_extensions, process_all, &output_file) {
+        Ok(_) => println!("Raw content extraction completed successfully"),
+        Err(e) => eprintln!("Error extracting raw content: {}", e),
+    }
+}
+
+pub fn handle_db_command(args: &[String]) {
+    let root_dir_path = parse_path(args);
+    let root_dir = Path::new(&root_dir_path);
+    process_files(&root_dir);
+}
+
+pub fn handle_retrieve_command(args: &[String]) {
+    let mut file_flag_index = None;
+    for (i, arg) in args.iter().enumerate() {
+        if arg == "--file" {
+            file_flag_index = Some(i);
+            break;
+        }
+    }
+
+    let input_file_path = if let Some(index) = file_flag_index {
+        if index + 1 < args.len() {
+            args[index + 1].clone()
+        } else {
+            println!("Missing value for --file flag.");
+            process::exit(1);
+        }
+    } else {
+        println!("Missing --file flag.");
+        process::exit(1);
+    };
+
+    let input_file = Path::new(&input_file_path);
+    let output_file = Path::new("retrieve.txt");
+
+    match retrieve_files(input_file, output_file) {
+        Ok(_) => println!("Retrieved content saved to retrieve.txt"),
+        Err(e) => {
+            println!("Error retrieving files: {}", e);
+            process::exit(1);
+        }
+    }
+}
+// --------- src/lib/directory.rs ---------
 use std::fs;
 use std::path::Path;
 use crate::gitignore::should_exclude;
@@ -6,11 +156,20 @@ use crate::gitignore::should_exclude;
 // Function to create a textual representation of the directory structure
 pub fn create_directory_structure(dir: &Path, exclude_patterns: &[String], indent: &str) -> String {
     let mut output = String::new();
-    let files: Vec<_> = fs::read_dir(dir)
-        .unwrap()
-        .filter_map(Result::ok)
-        .filter(|file| !should_exclude(&file.path(), exclude_patterns))
-        .collect();
+    let files: Vec<_> = match fs::read_dir(dir) {
+        Ok(entries) => entries
+            .filter_map(Result::ok)
+            .filter(|file| {
+                let should_exclude = should_exclude(&file.path(), exclude_patterns);
+                println!("File: {:?}, Excluded: {}", file.path(), should_exclude);
+                !should_exclude
+            })
+            .collect(),
+        Err(e) => {
+            println!("Error reading directory: {:?}, Error: {}", dir, e);
+            Vec::new()
+        },
+    };
 
     let mut index = 0;
     for file in &files {
@@ -41,11 +200,12 @@ pub fn create_directory_structure(dir: &Path, exclude_patterns: &[String], inden
 
     output
 }
-// --------- db.rs ---------
+// --------- src/lib/db.rs ---------
 use std::fs;
 use std::path::Path;
 use rusqlite::{Connection, params};
 use sha2::{Sha256, Digest};
+use crate::gitignore::{read_gitignore, should_exclude};
 
 pub fn process_files(root_dir: &Path) {
     let db_path = root_dir.join("context.db");
@@ -64,7 +224,8 @@ pub fn process_files(root_dir: &Path) {
     ).unwrap();
 
     let mut file_paths = Vec::new();
-    traverse_directory(root_dir, &mut file_paths, &conn);
+    let exclude_patterns = read_gitignore(&root_dir);
+    traverse_directory(root_dir, &mut file_paths, &conn, &exclude_patterns);
 
     // Delete entries from the "files" table that are no longer present in the file system
     let placeholders = std::iter::repeat("?").take(file_paths.len()).collect::<Vec<_>>().join(",");
@@ -73,16 +234,21 @@ pub fn process_files(root_dir: &Path) {
     conn.execute(&sql, params.as_slice()).unwrap();
 }
 
-fn traverse_directory(dir: &Path, file_paths: &mut Vec<String>, conn: &Connection) {
+fn traverse_directory(dir: &Path, file_paths: &mut Vec<String>, conn: &Connection, exclude_patterns: &[String]) {
     for entry in fs::read_dir(dir).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
+
+        if should_exclude(&path, exclude_patterns) {
+            continue;
+        }
 
         if path.is_file() {
             let file_path = path.to_str().unwrap().to_string();
             file_paths.push(file_path.clone());
 
-            let file_content = fs::read_to_string(&path).unwrap();
+            let file_content = fs::read(&path).unwrap();
+            let file_content = String::from_utf8_lossy(&file_content);
             let checksum = calculate_checksum(&file_content);
 
             let mut stmt = conn.prepare("SELECT * FROM files WHERE file_path = ?").unwrap();
@@ -103,7 +269,7 @@ fn traverse_directory(dir: &Path, file_paths: &mut Vec<String>, conn: &Connectio
                 ).unwrap();
             }
         } else if path.is_dir() {
-            traverse_directory(&path, file_paths, conn);
+            traverse_directory(&path, file_paths, conn, exclude_patterns);
         }
     }
 }
@@ -114,35 +280,125 @@ fn calculate_checksum(content: &str) -> String {
     let result = hasher.finalize();
     format!("{:x}", result)
 }
-// --------- mod.rs ---------
+// --------- src/lib/utils.rs ---------
+use std::env;
+use std::process;
+
+pub fn parse_path_and_ext(args: &[String]) -> (String, String) {
+    let mut path_flag_index = None;
+    let mut ext_flag_index = None;
+    for (i, arg) in args.iter().enumerate() {
+        if arg == "--path" {
+            path_flag_index = Some(i);
+        } else if arg == "--ext" {
+            ext_flag_index = Some(i);
+        }
+    }
+
+    let root_dir_path = if let Some(index) = path_flag_index {
+        if index + 1 < args.len() {
+            args[index + 1].clone()
+        } else {
+            println!("Missing value for --path flag.");
+            process::exit(1);
+        }
+    } else {
+        env::current_dir().unwrap().to_str().unwrap().to_string()
+    };
+
+    let file_extension = if let Some(index) = ext_flag_index {
+        if index + 1 < args.len() {
+            args[index + 1].clone()
+        } else {
+            println!("Missing value for --ext flag.");
+            process::exit(1);
+        }
+    } else {
+        "all".to_string()
+    };
+
+    (root_dir_path, file_extension)
+}
+
+pub fn parse_path(args: &[String]) -> String {
+    let mut path_flag_index = None;
+    for (i, arg) in args.iter().enumerate() {
+        if arg == "--path" {
+            path_flag_index = Some(i);
+            break;
+        }
+    }
+
+    if let Some(index) = path_flag_index {
+        if index + 1 < args.len() {
+            args[index + 1].clone()
+        } else {
+            println!("Missing value for --path flag.");
+            process::exit(1);
+        }
+    } else {
+        env::current_dir().unwrap().to_str().unwrap().to_string()
+    }
+}
+// --------- src/lib/mod.rs ---------
 pub mod gitignore;
 pub mod directory;
 pub mod extract;
 pub mod db;
-// --------- gitignore.rs ---------
+pub mod retrieve;
+pub mod commands;
+pub mod utils;
+// --------- src/lib/gitignore.rs ---------
+// src/lib/gitignore.rs
 use std::fs;
 use std::path::Path;
+use glob::Pattern;
 
 pub fn read_gitignore(dir: &Path) -> Vec<String> {
     let gitignore_path = dir.join(".gitignore");
     if gitignore_path.exists() {
-        let contents = fs::read_to_string(gitignore_path).unwrap();
-        contents.lines().map(|line| line.trim().to_string()).collect()
+        println!("Found .gitignore file at: {:?}", gitignore_path);
+        let contents = fs::read_to_string(gitignore_path).unwrap_or_default();
+        let patterns = contents.lines()
+            .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
+            .map(|line| line.trim().to_string())
+            .collect();
+        println!("Exclude patterns: {:?}", patterns);
+        patterns
     } else {
+        println!("No .gitignore file found in: {:?}", dir);
         Vec::new()
     }
 }
 
 pub fn should_exclude(path: &Path, exclude_patterns: &[String]) -> bool {
-    let file_name = path.file_name().unwrap().to_str().unwrap();
-    file_name == ".git" || file_name == ".gitignore" || exclude_patterns.iter().any(|pattern| path.to_str().unwrap().contains(pattern))
+    let relative_path = path.to_str().unwrap_or_default();
+
+    if relative_path.contains("/.git/") || relative_path.contains("/target/") {
+        return true;
+    }
+
+    exclude_patterns.iter().any(|pattern| {
+        let mut full_pattern = if pattern.starts_with('/') {
+            pattern.to_string()
+        } else {
+            format!("**/{}", pattern)
+        };
+
+        if !full_pattern.ends_with('/') && !full_pattern.ends_with("**") {
+            full_pattern.push_str("/**");
+        }
+
+        Pattern::new(&full_pattern).unwrap().matches(relative_path)
+    })
 }
-// --------- extract.rs ---------
+// --------- src/lib/extract.rs ---------
+use crate::gitignore::{read_gitignore, should_exclude};
+use regex::Regex;
 use std::fs;
+use std::io;
 use std::io::Write;
 use std::path::Path;
-use regex::Regex;
-use crate::gitignore::{read_gitignore, should_exclude};
 
 pub fn extract_definitions(dir: &Path, file_extension: &str, output_file: &Path) {
     let mut extracted_content = String::new();
@@ -175,7 +431,8 @@ fn extract_definitions_from_file(file_path: &Path, file_content: &str) -> String
     let class_regex = Regex::new(r"class\s+(\w+)(\s+extends\s+\w+)?\s*\{[^}]*\}").unwrap();
     let method_regex = Regex::new(r"(constructor\s*\([^)]*\)|\w+\s*\([^)]*\))").unwrap();
     let function_regex = Regex::new(r"function\s+(\w+)\s*\([^)]*\)\s*\{").unwrap();
-    let require_regex = Regex::new("const\\s+(\\w+)\\s*=\\s*require\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)").unwrap();
+    let require_regex =
+        Regex::new("const\\s+(\\w+)\\s*=\\s*require\\(\\s*['\"]([^'\"]+)['\"]\\s*\\)").unwrap();
     let arrow_function_regex = Regex::new(r"(\w+)\s*=\s*\([^)]*\)\s*=>\s*\{").unwrap();
     let import_export_regex = Regex::new(r"\b(import|export)\b.*;").unwrap();
 
@@ -201,24 +458,36 @@ fn extract_definitions_from_file(file_path: &Path, file_content: &str) -> String
 
     // Extract function declarations
     for function_match in function_regex.captures_iter(file_content) {
-        result.push_str(&format!("function {}()\n", function_match.get(1).unwrap().as_str()));
+        result.push_str(&format!(
+            "function {}()\n",
+            function_match.get(1).unwrap().as_str()
+        ));
     }
 
     // Extract const declarations initialized with require
     for require_match in require_regex.captures_iter(file_content) {
         let variable_name = require_match.get(1).unwrap().as_str();
         let module_name = require_match.get(2).unwrap().as_str();
-        result.push_str(&format!("const {} = require('{}')\n", variable_name, module_name));
+        result.push_str(&format!(
+            "const {} = require('{}')\n",
+            variable_name, module_name
+        ));
     }
 
     // Extract arrow functions
     for arrow_function_match in arrow_function_regex.captures_iter(file_content) {
-        result.push_str(&format!("{} = () => {{}}\n", arrow_function_match.get(1).unwrap().as_str()));
+        result.push_str(&format!(
+            "{} = () => {{}}\n",
+            arrow_function_match.get(1).unwrap().as_str()
+        ));
     }
 
     // Extract import/export statements
     for import_export_match in import_export_regex.captures_iter(file_content) {
-        result.push_str(&format!("{}\n", import_export_match.get(0).unwrap().as_str()));
+        result.push_str(&format!(
+            "{}\n",
+            import_export_match.get(0).unwrap().as_str()
+        ));
     }
 
     result
@@ -227,197 +496,107 @@ fn extract_definitions_from_file(file_path: &Path, file_content: &str) -> String
 // lib/extract.rs
 // ...
 
-pub fn raw_content(dir: &Path, file_extensions: &[String], output_file: &Path) {
+pub fn raw_content(dir: &Path, file_extensions: &[String], process_all: bool, output_file: &Path) -> io::Result<()> {
+    println!("Starting raw_content for directory: {:?}", dir);
+    println!("File extensions: {:?}", file_extensions);
+    println!("Process all files: {}", process_all);
+    
+    let exclude_patterns = read_gitignore(dir);
+    println!("Exclude patterns: {:?}", exclude_patterns);
+
     let mut raw_content = String::new();
+    let base_dir = dir.to_path_buf();
+    
+    process_directory(&base_dir, &base_dir, file_extensions, process_all, &exclude_patterns, &mut raw_content)?;
 
-    // Read the .gitignore file and get the exclude patterns
-    let exclude_patterns = read_gitignore(&dir);
+    println!("Raw content length: {}", raw_content.len());
 
-    for entry in fs::read_dir(dir).unwrap() {
-        let entry = entry.unwrap();
+    if !raw_content.is_empty() {
+        println!("Writing content to file: {:?}", output_file);
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(output_file)?;
+        file.write_all(raw_content.as_bytes())?;
+        println!("Content written successfully");
+    } else {
+        println!("No content to write");
+    }
+
+    Ok(())
+}
+
+fn process_directory(
+    base_dir: &Path,
+    current_dir: &Path,
+    file_extensions: &[String],
+    process_all: bool,
+    exclude_patterns: &[String],
+    raw_content: &mut String,
+) -> io::Result<()> {
+    println!("Processing directory: {:?}", current_dir);
+
+    let entries = fs::read_dir(current_dir)?;
+    for entry in entries {
+        let entry = entry?;
         let path = entry.path();
 
-        // Check if the file or directory should be excluded
-        if should_exclude(&path, &exclude_patterns) {
+        if should_exclude(&path, exclude_patterns) {
+            println!("Excluding path: {:?}", path);
             continue;
         }
 
-        if path.is_file() && file_extensions.iter().any(|ext| path.extension().unwrap_or_default().to_str().unwrap() == ext) {
-            let file_content = fs::read_to_string(&path).unwrap();
-            let file_name = path.file_name().unwrap().to_str().unwrap();
-            raw_content.push_str(&format!("// --------- {} ---------\n", file_name));
-            raw_content.push_str(&file_content);
-            raw_content.push('\n');
+        if path.is_file() {
+            let file_ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            let should_include = process_all || file_extensions.iter().any(|ext| ext == file_ext);
+
+            println!("File: {:?}, Extension: {}, Should include: {}", path, file_ext, should_include);
+
+            if should_include {
+                match fs::read_to_string(&path) {
+                    Ok(file_content) => {
+                        let relative_path = path.strip_prefix(base_dir).unwrap_or(&path);
+                        raw_content.push_str(&format!("// --------- {} ---------\n", relative_path.display()));
+                        raw_content.push_str(&file_content);
+                        raw_content.push('\n');
+                        println!("Added content from file: {:?}", path);
+                    }
+                    Err(e) => println!("Error reading file {:?}: {}", path, e),
+                }
+            }
         } else if path.is_dir() {
-            self::raw_content(&path, file_extensions, output_file);
+            process_directory(base_dir, &path, file_extensions, process_all, exclude_patterns, raw_content)?;
         }
     }
 
-    if !raw_content.is_empty() {
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(output_file)
-            .unwrap();
-        file.write_all(raw_content.as_bytes()).unwrap();
-    }
+    Ok(())
 }
 
 // ...
-// --------- main.rs ---------
-use std::env;
+
+// --------- src/lib/retrieve.rs ---------
 use std::fs;
+use std::io::{BufRead, BufReader};
 use std::path::Path;
-use std::process;
-use oracle::gitignore::read_gitignore;
-use oracle::directory::create_directory_structure;
-use oracle::extract::extract_definitions;
-use oracle::db::process_files;
 
-fn main() {
-    let args: Vec<String> = env::args().collect();
+pub fn retrieve_files(input_file: &Path, output_file: &Path) -> Result<(), std::io::Error> {
+    let file = fs::File::open(input_file)?;
+    let reader = BufReader::new(file);
+    let mut output = String::new();
 
-    if args.len() < 2 {
-        println!("Usage: directory_structure <command> [options]");
-        println!("Commands:");
-        println!("  dir    Generate the directory structure");
-        println!("  extract    Extract definitions from files");
-        process::exit(1);
+    for line in reader.lines() {
+        let file_path = line?;
+        let file_content = match fs::read_to_string(&file_path) {
+            Ok(content) => content,
+            Err(e) => format!("Error reading file: {}", e),
+        };
+
+        output.push_str(&format!("----------------------\n{}\n---------------------\n", file_path));
+        output.push_str(&file_content);
+        output.push_str("\n");
     }
 
-    let command = &args[1];
-
-    if command == "dir" {
-        let mut path_flag_index = None;
-        for (i, arg) in args.iter().enumerate() {
-            if arg == "--path" {
-                path_flag_index = Some(i);
-                break;
-            }
-        }
-
-        let root_dir_path = if let Some(index) = path_flag_index {
-            if index + 1 < args.len() {
-                args[index + 1].clone()
-            } else {
-                println!("Missing value for --path flag.");
-                process::exit(1);
-            }
-        } else {
-            env::current_dir().unwrap().to_str().unwrap().to_string()
-        };
-
-        let root_dir = Path::new(&root_dir_path);
-
-        // Read the .gitignore file and get the exclude patterns
-        let exclude_patterns = read_gitignore(&root_dir);
-
-        // Create textual representation of the directory structure
-        let directory_structure = create_directory_structure(&root_dir, &exclude_patterns, "");
-        println!("Directory Structure:\n{}", directory_structure);
-
-        // Save the directory structure to a file
-        let output_file = root_dir.join("directory_structure.txt");
-        fs::write(output_file, directory_structure).unwrap();
-    } else if command == "extract" {
-        let mut path_flag_index = None;
-        let mut ext_flag_index = None;
-        for (i, arg) in args.iter().enumerate() {
-            if arg == "--path" {
-                path_flag_index = Some(i);
-            } else if arg == "--ext" {
-                ext_flag_index = Some(i);
-            }
-        }
-
-        let root_dir_path = if let Some(index) = path_flag_index {
-            if index + 1 < args.len() {
-                args[index + 1].clone()
-            } else {
-                println!("Missing value for --path flag.");
-                process::exit(1);
-            }
-        } else {
-            env::current_dir().unwrap().to_str().unwrap().to_string()
-        };
-
-        let file_extension = if let Some(index) = ext_flag_index {
-            if index + 1 < args.len() {
-                args[index + 1].clone()
-            } else {
-                println!("Missing value for --ext flag.");
-                process::exit(1);
-            }
-        } else {
-            "js".to_string()
-        };
-
-        let root_dir = Path::new(&root_dir_path);
-        let output_file = root_dir.join("extracted.txt");
-
-        extract_definitions(&root_dir, &file_extension, &output_file);
-    } else if command == "raw" {
-        let mut path_flag_index = None;
-        let mut ext_flag_index = None;
-        for (i, arg) in args.iter().enumerate() {
-            if arg == "--path" {
-                path_flag_index = Some(i);
-            } else if arg == "--ext" {
-                ext_flag_index = Some(i);
-            }
-        }
-
-        let root_dir_path = if let Some(index) = path_flag_index {
-            if index + 1 < args.len() {
-                args[index + 1].clone()
-            } else {
-                println!("Missing value for --path flag.");
-                process::exit(1);
-            }
-        } else {
-            env::current_dir().unwrap().to_str().unwrap().to_string()
-        };
-
-        let file_extensions = if let Some(index) = ext_flag_index {
-            if index + 1 < args.len() {
-                args[index + 1].split(',').map(|ext| ext.trim().to_string()).collect::<Vec<String>>()
-            } else {
-                println!("Missing value for --ext flag.");
-                process::exit(1);
-            }
-        } else {
-            println!("Missing --ext flag.");
-            process::exit(1);
-        };
-
-        let root_dir = Path::new(&root_dir_path);
-        let output_file = root_dir.join("raw.txt");
-
-        oracle::extract::raw_content(&root_dir, &file_extensions, &output_file);
-    } else if command == "db" {
-        let mut path_flag_index = None;
-        for (i, arg) in args.iter().enumerate() {
-            if arg == "--path" {
-                path_flag_index = Some(i);
-                break;
-            }
-        }
-
-        let root_dir_path = if let Some(index) = path_flag_index {
-            if index + 1 < args.len() {
-                args[index + 1].clone()
-            } else {
-                println!("Missing value for --path flag.");
-                process::exit(1);
-            }
-        } else {
-            env::current_dir().unwrap().to_str().unwrap().to_string()
-        };
-
-        let root_dir = Path::new(&root_dir_path);
-        process_files(&root_dir);
-    } else {
-        println!("Invalid command. Available commands: dir, extract, raw, db");
-        process::exit(1);
-    }
+    fs::write(output_file, output)?;
+    Ok(())
 }

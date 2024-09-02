@@ -1,13 +1,13 @@
+use crate::db::process_files;
+use crate::directory::create_directory_structure;
+use crate::extract::{extract_definitions, raw_content};
+use crate::gitignore::read_gitignore;
+use crate::retrieve::retrieve_files;
+use crate::utils::{parse_path, parse_path_and_ext};
 use std::env;
 use std::fs;
 use std::path::Path;
 use std::process;
-use crate::gitignore::read_gitignore;
-use crate::directory::create_directory_structure;
-use crate::extract::{extract_definitions, raw_content};
-use crate::db::process_files;
-use crate::retrieve::retrieve_files;
-use crate::utils::{parse_path_and_ext, parse_path};
 
 pub fn handle_dir_command(args: &[String]) {
     let (root_dir_path, output_dir_path) = match args.iter().position(|arg| arg == "--path") {
@@ -45,11 +45,21 @@ pub fn handle_extract_command(args: &[String]) {
 }
 
 pub fn handle_raw_command(args: &[String]) {
-    let (root_dir_path, file_extensions) = parse_path_and_ext(args);
+    let (root_dir_path, file_extensions_str) = parse_path_and_ext(args);
     let root_dir = Path::new(&root_dir_path);
     let output_file = root_dir.join("raw.txt");
 
-    raw_content(&root_dir, &file_extensions.split(',').map(|s| s.to_string()).collect::<Vec<String>>(), &output_file);
+    let process_all = file_extensions_str.to_lowercase() == "all";
+    let file_extensions = if process_all {
+        Vec::new()
+    } else {
+        file_extensions_str
+            .split(',')
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>()
+    };
+
+    raw_content(&root_dir, &file_extensions, &output_file);
 }
 
 pub fn handle_db_command(args: &[String]) {
