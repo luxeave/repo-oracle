@@ -1,12 +1,20 @@
 ├── src
 │   ├── main.rs
 │   └── lib
+│       ├── commands.rs
 │       ├── directory.rs
 │       ├── db.rs
+│       ├── utils.rs
 │       ├── mod.rs
 │       ├── gitignore.rs
-│       └── extract.rs
+│       ├── extract.rs
+│       └── retrieve.rs
+├── .gitignore
+├── directory_structure.txt
+├── README.md
+├── .git
 ├── context.db
 ├── Cargo.lock
 ├── Cargo.toml
+├── target
 └── raw.txt

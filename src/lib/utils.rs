@@ -31,7 +31,7 @@ pub fn parse_path_and_ext(args: &[String]) -> (String, String) {
             process::exit(1);
         }
     } else {
-        "js".to_string()
+        "all".to_string()
     };
 
     (root_dir_path, file_extension)

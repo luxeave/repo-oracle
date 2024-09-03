@@ -1,12 +1,9 @@
-use std::env;
-use std::process;
 use oracle::commands::{
-    handle_dir_command,
-    handle_extract_command,
-    handle_raw_command,
-    handle_db_command,
+    handle_db_command, handle_dir_command, handle_extract_command, handle_raw_command,
     handle_retrieve_command,
 };
+use std::env;
+use std::process;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

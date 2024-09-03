@@ -1,6 +1,6 @@
+use crate::gitignore::should_exclude;
 use std::fs;
 use std::path::Path;
-use crate::gitignore::should_exclude;
 
 // Function to create a textual representation of the directory structure
 pub fn create_directory_structure(dir: &Path, exclude_patterns: &[String], indent: &str) -> String {
@@ -17,7 +17,7 @@ pub fn create_directory_structure(dir: &Path, exclude_patterns: &[String], inden
         Err(e) => {
             println!("Error reading directory: {:?}, Error: {}", dir, e);
             Vec::new()
-        },
+        }
     };
 
     let mut index = 0;
@@ -31,7 +31,11 @@ pub fn create_directory_structure(dir: &Path, exclude_patterns: &[String], inden
         output.push_str(&format!(
             "{}{}{}\n",
             indent,
-            if is_last_file { "└── " } else { "├── " },
+            if is_last_file {
+                "└── "
+            } else {
+                "├── "
+            },
             file_name
         ));
 
@@ -41,7 +45,11 @@ pub fn create_directory_structure(dir: &Path, exclude_patterns: &[String], inden
             } else {
                 format!("{}│   ", indent)
             };
-            output.push_str(&create_directory_structure(&file_path, exclude_patterns, &sub_indent));
+            output.push_str(&create_directory_structure(
+                &file_path,
+                exclude_patterns,
+                &sub_indent,
+            ));
         }
 
         index += 1;
