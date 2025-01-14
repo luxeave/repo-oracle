@@ -1,6 +1,7 @@
-/target
+target
 raw.txt
 directory_structure.txt 
 context.db
 list.txt 
 retrieve.txt
+.git
