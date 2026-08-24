@@ -59,7 +59,7 @@ pub fn handle_raw_command(args: &[String]) {
             .collect::<Vec<String>>()
     };
 
-    raw_content(&root_dir, &file_extensions, &output_file);
+    raw_content(&root_dir, &file_extensions, process_all, &output_file).unwrap();
 }
 
 pub fn handle_db_command(args: &[String]) {
